@@ -5,16 +5,16 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.addIndex('tickets', {
       fields: ['companyId', 'type'],
-      name: 'tickets_company_id_registration_open_unique',
+      name: 'tickets_company_id_strikeoff_open_unique',
       unique: true,
       where: {
-        type: 'registrationAddressChange',
+        type: 'strikeOff',
         status: 'open'
       }
     });
   },
 
   async down(queryInterface, Sequelize) {
-    await queryInterface.removeIndex('tickets', 'tickets_company_id_registration_open_unique');
+    await queryInterface.removeIndex('tickets', 'tickets_company_id_strikeoff_open_unique');
   }
 };

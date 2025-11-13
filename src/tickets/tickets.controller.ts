@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, Get, Post } from '@nestjs/common';
-import { UniqueConstraintError } from 'sequelize';
+import { UniqueConstraintError, Op } from 'sequelize';
 import { Company } from '../../db/models/Company';
 import {
   Ticket,
@@ -8,6 +8,7 @@ import {
   TicketType,
 } from '../../db/models/Ticket';
 import { User, UserRole } from '../../db/models/User';
+import { Sequelize } from 'sequelize-typescript';
 
 interface newTicketDto {
   type: TicketType;
@@ -25,6 +26,7 @@ interface TicketDto {
 
 @Controller('api/v1/tickets')
 export class TicketsController {
+  constructor(private sequelize: Sequelize) {}
   @Get()
   async findAll() {
     return await Ticket.findAll({ include: [Company, User] });
@@ -34,15 +36,40 @@ export class TicketsController {
   async create(@Body() newTicketDto: newTicketDto) {
     const { type, companyId } = newTicketDto;
 
-    const category =
-      type === TicketType.managementReport
-        ? TicketCategory.accounting
-        : TicketCategory.corporate;
+    // check if company already has an open strikeOff ticket (prevent any new ticket creation)
+    if (type !== TicketType.strikeOff) {
+      const existingStrikeOffTicket = await Ticket.findOne({
+        where: {
+          companyId,
+          type: TicketType.strikeOff,
+          status: TicketStatus.open,
+        },
+      });
 
-    let userRole =
-      type === TicketType.managementReport
-        ? UserRole.accountant
-        : UserRole.corporateSecretary;
+      if (existingStrikeOffTicket) {
+        throw new ConflictException(
+          'Cannot create new tickets when company has an open strikeOff ticket',
+        );
+      }
+    }
+
+    let category: TicketCategory;
+    if (type === TicketType.managementReport) {
+      category = TicketCategory.accounting;
+    } else if (type === TicketType.strikeOff) {
+      category = TicketCategory.management;
+    } else {
+      category = TicketCategory.corporate;
+    }
+
+    let userRole: UserRole;
+    if (type === TicketType.managementReport) {
+      userRole = UserRole.accountant;
+    } else if (type === TicketType.strikeOff) {
+      userRole = UserRole.director;
+    } else {
+      userRole = UserRole.corporateSecretary;
+    }
 
     let assignees = await User.findAll({
       where: { companyId, role: userRole },
@@ -69,33 +96,65 @@ export class TicketsController {
 
     const assignee = assignees[0];
 
-    let ticket: Ticket;
+    const transaction = await this.sequelize.transaction();
+
     try {
-      ticket = await Ticket.create({
-        companyId,
-        assigneeId: assignee.id,
-        category,
-        type,
-        status: TicketStatus.open,
-      });
-    } catch (error) {
-      if (error instanceof UniqueConstraintError) {
-        throw new ConflictException(
-          'registrationAddressChange ticket already exists for this company',
+      if (type === TicketType.strikeOff) {
+        await Ticket.update(
+          { status: TicketStatus.resolved },
+          {
+            where: {
+              companyId,
+              status: TicketStatus.open,
+              type: {
+                [Op.ne]: TicketType.strikeOff,
+              },
+            },
+            transaction,
+          },
         );
+      }
+
+      const ticket = await Ticket.create(
+        {
+          companyId,
+          assigneeId: assignee.id,
+          category,
+          type,
+          status: TicketStatus.open,
+        },
+        { transaction },
+      );
+
+      await transaction.commit();
+
+      const ticketDto: TicketDto = {
+        id: ticket.id,
+        type: ticket.type,
+        assigneeId: ticket.assigneeId,
+        status: ticket.status,
+        category: ticket.category,
+        companyId: ticket.companyId,
+      };
+
+      return ticketDto;
+    } catch (error) {
+      await transaction.rollback();
+
+      if (error instanceof UniqueConstraintError) {
+        if (type === TicketType.strikeOff) {
+          throw new ConflictException(
+            'strikeOff ticket already exists for this company',
+          );
+        } else if (type === TicketType.registrationAddressChange) {
+          throw new ConflictException(
+            'registrationAddressChange ticket already exists for this company',
+          );
+        } else {
+          throw new ConflictException('Ticket already exists for this company');
+        }
       }
       throw error;
     }
-
-    const ticketDto: TicketDto = {
-      id: ticket.id,
-      type: ticket.type,
-      assigneeId: ticket.assigneeId,
-      status: ticket.status,
-      category: ticket.category,
-      companyId: ticket.companyId,
-    };
-
-    return ticketDto;
   }
 }
