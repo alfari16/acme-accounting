@@ -25,8 +25,8 @@ export class ReportsService {
     fs: 'idle',
   };
 
-  state(scope: string) {
-    return this.states[scope];
+  state(scope: string): string {
+    return this.states[scope as keyof typeof this.states];
   }
 
   getStatus(reportType: string): ReportState {
@@ -289,40 +289,46 @@ export class ReportsService {
       fs: `job_${Date.now()}_fs`,
     };
 
-    setImmediate(async () => {
-      try {
-        this.updateReportState('accounts', 'processing');
-        const duration = await this.accounts();
-        this.updateReportState('accounts', 'completed', duration);
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : 'Unknown error';
-        this.updateReportState('accounts', 'failed', 0, errorMessage);
-      }
+    setImmediate(() => {
+      void (async () => {
+        try {
+          this.updateReportState('accounts', 'processing');
+          const duration = await this.accounts();
+          this.updateReportState('accounts', 'completed', duration);
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown error';
+          this.updateReportState('accounts', 'failed', 0, errorMessage);
+        }
+      })();
     });
 
-    setImmediate(async () => {
-      try {
-        this.updateReportState('yearly', 'processing');
-        const duration = await this.yearly();
-        this.updateReportState('yearly', 'completed', duration);
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : 'Unknown error';
-        this.updateReportState('yearly', 'failed', 0, errorMessage);
-      }
+    setImmediate(() => {
+      void (async () => {
+        try {
+          this.updateReportState('yearly', 'processing');
+          const duration = await this.yearly();
+          this.updateReportState('yearly', 'completed', duration);
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown error';
+          this.updateReportState('yearly', 'failed', 0, errorMessage);
+        }
+      })();
     });
 
-    setImmediate(async () => {
-      try {
-        this.updateReportState('fs', 'processing');
-        const duration = await this.fs();
-        this.updateReportState('fs', 'completed', duration);
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : 'Unknown error';
-        this.updateReportState('fs', 'failed', 0, errorMessage);
-      }
+    setImmediate(() => {
+      void (async () => {
+        try {
+          this.updateReportState('fs', 'processing');
+          const duration = await this.fs();
+          this.updateReportState('fs', 'completed', duration);
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown error';
+          this.updateReportState('fs', 'failed', 0, errorMessage);
+        }
+      })();
     });
 
     return jobIds;

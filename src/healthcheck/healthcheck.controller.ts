@@ -14,11 +14,13 @@ export class HealthcheckController {
         OK: true,
         database: 'connected',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
       return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
         OK: false,
         database: 'disconnected',
-        error: error.message,
+        error: errorMessage,
       });
     }
   }

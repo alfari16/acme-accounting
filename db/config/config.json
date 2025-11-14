@@ -2,17 +2,17 @@
   "development": {
     "dialect": "postgres",
     "host": "localhost",
-    "port": 5432,
-    "username": "lacksfruit",
-    "password": "lacksfruit",
+    "port": 5590,
+    "username": "user",
+    "password": "password",
     "database": "task-dev"
   },
   "test": {
     "dialect": "postgres",
     "host": "localhost",
-    "port": 5432,
-    "username": "lacksfruit",
-    "password": "lacksfruit",
+    "port": 5590,
+    "username": "user",
+    "password": "password",
     "database": "task-test"
   }
 }
