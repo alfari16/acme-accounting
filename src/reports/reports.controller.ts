@@ -6,20 +6,29 @@ export class ReportsController {
   constructor(private reportsService: ReportsService) {}
 
   @Get()
+  @HttpCode(200)
   report() {
     return {
       'accounts.csv': this.reportsService.state('accounts'),
       'yearly.csv': this.reportsService.state('yearly'),
       'fs.csv': this.reportsService.state('fs'),
+      // detailed status information
+      accounts: this.reportsService.getStatus('accounts'),
+      yearly: this.reportsService.getStatus('yearly'),
+      fs: this.reportsService.getStatus('fs'),
     };
   }
 
   @Post()
-  @HttpCode(201)
+  @HttpCode(202)
   generate() {
-    this.reportsService.accounts();
-    this.reportsService.yearly();
-    this.reportsService.fs();
-    return { message: 'finished' };
+    const jobIds = this.reportsService.startBackgroundGeneration();
+
+    return {
+      message: 'Reports generation started in background',
+      jobIds,
+      estimatedTime: '10-15 seconds',
+      isAnyProcessing: this.reportsService.isAnyReportProcessing(),
+    };
   }
 }
