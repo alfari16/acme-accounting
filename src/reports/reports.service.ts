@@ -1,32 +1,99 @@
 import { Injectable } from '@nestjs/common';
-import fs from 'fs';
+import fsPromises from 'fs/promises';
 import path from 'path';
 import { performance } from 'perf_hooks';
 
+export interface ReportState {
+  status: 'idle' | 'processing' | 'completed' | 'failed';
+  lastUpdated: Date | null;
+  lastDuration: number | null;
+  error?: string;
+  startTime?: Date;
+}
+
 @Injectable()
 export class ReportsService {
+  private reportStates: Map<string, ReportState> = new Map([
+    ['accounts', { status: 'idle', lastUpdated: null, lastDuration: null }],
+    ['yearly', { status: 'idle', lastUpdated: null, lastDuration: null }],
+    ['fs', { status: 'idle', lastUpdated: null, lastDuration: null }],
+  ]);
+
   private states = {
     accounts: 'idle',
     yearly: 'idle',
     fs: 'idle',
   };
 
-  state(scope: string) {
-    return this.states[scope];
+  state(scope: string): string {
+    return this.states[scope as keyof typeof this.states];
   }
 
-  accounts() {
+  getStatus(reportType: string): ReportState {
+    return (
+      this.reportStates.get(reportType) || {
+        status: 'idle',
+        lastUpdated: null,
+        lastDuration: null,
+      }
+    );
+  }
+
+  private updateReportState(
+    type: string,
+    status: ReportState['status'],
+    duration?: number,
+    error?: string,
+  ): void {
+    const currentState = this.reportStates.get(type) || {
+      status: 'idle',
+      lastUpdated: null,
+      lastDuration: null,
+    };
+
+    const updatedState: ReportState = {
+      ...currentState,
+      status,
+      error: error || undefined,
+      lastDuration: duration || null,
+      lastUpdated:
+        status === 'completed' ? new Date() : currentState.lastUpdated,
+      startTime: status === 'processing' ? new Date() : currentState.startTime,
+    };
+
+    this.reportStates.set(type, updatedState);
+
+    if (status === 'completed' && duration) {
+      this.states[type] = `finished in ${(duration / 1000).toFixed(2)}`;
+    } else if (status === 'failed') {
+      this.states[type] = `failed: ${error}`;
+    }
+  }
+
+  isAnyReportProcessing(): boolean {
+    for (const state of this.reportStates.values()) {
+      if (state.status === 'processing') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async accounts() {
     this.states.accounts = 'starting';
     const start = performance.now();
     const tmpDir = 'tmp';
     const outputFile = 'out/accounts.csv';
     const accountBalances: Record<string, number> = {};
-    fs.readdirSync(tmpDir).forEach((file) => {
+    const files = await fsPromises.readdir(tmpDir);
+
+    for (const file of files) {
       if (file.endsWith('.csv')) {
-        const lines = fs
-          .readFileSync(path.join(tmpDir, file), 'utf-8')
-          .trim()
-          .split('\n');
+        const content = await fsPromises.readFile(
+          path.join(tmpDir, file),
+          'utf-8',
+        );
+        const lines = content.trim().split('\n');
         for (const line of lines) {
           const [, account, , debit, credit] = line.split(',');
           if (!accountBalances[account]) {
@@ -36,27 +103,34 @@ export class ReportsService {
             parseFloat(String(debit || 0)) - parseFloat(String(credit || 0));
         }
       }
-    });
+    }
+
     const output = ['Account,Balance'];
     for (const [account, balance] of Object.entries(accountBalances)) {
       output.push(`${account},${balance.toFixed(2)}`);
     }
-    fs.writeFileSync(outputFile, output.join('\n'));
-    this.states.accounts = `finished in ${((performance.now() - start) / 1000).toFixed(2)}`;
+
+    await fsPromises.writeFile(outputFile, output.join('\n'));
+    const duration = performance.now() - start;
+    this.states.accounts = `finished in ${(duration / 1000).toFixed(2)}`;
+    return duration;
   }
 
-  yearly() {
+  async yearly() {
     this.states.yearly = 'starting';
     const start = performance.now();
     const tmpDir = 'tmp';
     const outputFile = 'out/yearly.csv';
     const cashByYear: Record<string, number> = {};
-    fs.readdirSync(tmpDir).forEach((file) => {
+    const files = await fsPromises.readdir(tmpDir);
+
+    for (const file of files) {
       if (file.endsWith('.csv') && file !== 'yearly.csv') {
-        const lines = fs
-          .readFileSync(path.join(tmpDir, file), 'utf-8')
-          .trim()
-          .split('\n');
+        const content = await fsPromises.readFile(
+          path.join(tmpDir, file),
+          'utf-8',
+        );
+        const lines = content.trim().split('\n');
         for (const line of lines) {
           const [date, account, , debit, credit] = line.split(',');
           if (account === 'Cash') {
@@ -69,18 +143,22 @@ export class ReportsService {
           }
         }
       }
-    });
+    }
+
     const output = ['Financial Year,Cash Balance'];
     Object.keys(cashByYear)
       .sort()
       .forEach((year) => {
         output.push(`${year},${cashByYear[year].toFixed(2)}`);
       });
-    fs.writeFileSync(outputFile, output.join('\n'));
-    this.states.yearly = `finished in ${((performance.now() - start) / 1000).toFixed(2)}`;
+
+    await fsPromises.writeFile(outputFile, output.join('\n'));
+    const duration = performance.now() - start;
+    this.states.yearly = `finished in ${(duration / 1000).toFixed(2)}`;
+    return duration;
   }
 
-  fs() {
+  async fs() {
     this.states.fs = 'starting';
     const start = performance.now();
     const tmpDir = 'tmp';
@@ -124,23 +202,26 @@ export class ReportsService {
         }
       }
     }
-    fs.readdirSync(tmpDir).forEach((file) => {
+
+    const files = await fsPromises.readdir(tmpDir);
+    for (const file of files) {
       if (file.endsWith('.csv') && file !== 'fs.csv') {
-        const lines = fs
-          .readFileSync(path.join(tmpDir, file), 'utf-8')
-          .trim()
-          .split('\n');
+        const content = await fsPromises.readFile(
+          path.join(tmpDir, file),
+          'utf-8',
+        );
+        const lines = content.trim().split('\n');
 
         for (const line of lines) {
           const [, account, , debit, credit] = line.split(',');
 
-          if (balances.hasOwnProperty(account)) {
+          if (Object.prototype.hasOwnProperty.call(balances, account)) {
             balances[account] +=
               parseFloat(String(debit || 0)) - parseFloat(String(credit || 0));
           }
         }
       }
-    });
+    }
 
     const output: string[] = [];
     output.push('Basic Financial Statement');
@@ -195,7 +276,61 @@ export class ReportsService {
     output.push(
       `Assets = Liabilities + Equity, ${totalAssets.toFixed(2)} = ${(totalLiabilities + totalEquity).toFixed(2)}`,
     );
-    fs.writeFileSync(outputFile, output.join('\n'));
-    this.states.fs = `finished in ${((performance.now() - start) / 1000).toFixed(2)}`;
+    await fsPromises.writeFile(outputFile, output.join('\n'));
+    const duration = performance.now() - start;
+    this.states.fs = `finished in ${(duration / 1000).toFixed(2)}`;
+    return duration;
+  }
+
+  startBackgroundGeneration(): { [key: string]: string } {
+    const jobIds = {
+      accounts: `job_${Date.now()}_accounts`,
+      yearly: `job_${Date.now()}_yearly`,
+      fs: `job_${Date.now()}_fs`,
+    };
+
+    setImmediate(() => {
+      void (async () => {
+        try {
+          this.updateReportState('accounts', 'processing');
+          const duration = await this.accounts();
+          this.updateReportState('accounts', 'completed', duration);
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown error';
+          this.updateReportState('accounts', 'failed', 0, errorMessage);
+        }
+      })();
+    });
+
+    setImmediate(() => {
+      void (async () => {
+        try {
+          this.updateReportState('yearly', 'processing');
+          const duration = await this.yearly();
+          this.updateReportState('yearly', 'completed', duration);
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown error';
+          this.updateReportState('yearly', 'failed', 0, errorMessage);
+        }
+      })();
+    });
+
+    setImmediate(() => {
+      void (async () => {
+        try {
+          this.updateReportState('fs', 'processing');
+          const duration = await this.fs();
+          this.updateReportState('fs', 'completed', duration);
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown error';
+          this.updateReportState('fs', 'failed', 0, errorMessage);
+        }
+      })();
+    });
+
+    return jobIds;
   }
 }
